@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <title>ColorData</title>
+    <!-- โหลด Tailwind CSS จาก CDN เพื่อใช้ในการจัดสไตล์ -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+
+    </style>
+  </head>
+
+  <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div id="root" class="bg-white p-8 rounded-lg shadow-lg"></div>
+
+    <!-- โหลด React, ReactDOM และ Babel -->
+    <!-- React Core -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <!-- ReactDOM สำหรับการเรนเดอร์ React Component เข้าสู่ DOM -->
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone สำหรับการแปลง JSX ในเบราว์เซอร์ (เหมาะสำหรับการพัฒนาและตัวอย่างเล็กๆ) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+
+    <!-- Module Section -->
+    <script type="text/babel">
+
+      /**
+       * Colordata Component
+       * ดึงข้อมูล colors_translate จาก Apps Script API แล้วแสดงในตาราง
+       */
+     
+      const Colordata = React.forwardRef((props, ref) => {
+        const [colors, setColors] = React.useState([]);
+        const [search, setSearch] = React.useState("");
+        const [editRow, setEditRow] = React.useState(null); // index ของแถวที่กำลัง edit
+        const [editValues, setEditValues] = React.useState({});
+        const [showModal, setShowModal] = React.useState(false);
+
+        React.useEffect(() => {
+          fetch("https://script.google.com/macros/s/AKfycbwB9tUS7pHLR3GYOaik6pYj1_RWAPa4EEwplaV7F9hcv2oHRY0y0DkgdIdo-NgjPf3C/exec?action=getcolordata")
+            .then(res => res.json())
+            .then(data => {
+              setColors(data);
+            });
+        }, []);
+
+        const filteredColors = React.useMemo(() => {
+          if (!Array.isArray(colors) || colors.length < 2) return colors;
+          const headers = colors[0];
+          return [
+            headers,
+            ...colors.slice(1).filter(row => {
+              const colorCode = (row[headers.indexOf("color_code")] || "").toLowerCase();
+              const colorNameRaw = row[headers.indexOf("color_name")] || "";
+              let colorNameTh = "";
+              let colorNameEn = "";
+              try {
+                const colorNameObj = JSON.parse(colorNameRaw);
+                colorNameTh = (colorNameObj.th || "").toLowerCase();
+                colorNameEn = (colorNameObj.en || "").toLowerCase();
+              } catch {}
+              const q = search.toLowerCase();
+              return (
+                colorCode.includes(q) ||
+                colorNameTh.includes(q) ||
+                colorNameEn.includes(q)
+              );
+            })
+          ];
+        }, [colors, search]);
+
+        function openEditModal(rowIndex, row, headers) {
+          setEditRow(rowIndex);
+          const values = {};
+          headers.forEach((h, idx) => {
+            if (h === "color_name") {
+              try {
+                values[h] = JSON.parse(row[idx]);
+              } catch {
+                values[h] = { th: "", en: "" };
+              }
+            } else if (h === "hexcode" || h === "color_code") {
+              let val = row[idx];
+              if (typeof val === "string" && val.startsWith('"') && val.endsWith('"')) {
+                try { val = JSON.parse(val); } catch {}
+              }
+              values[h] = val;
+            } else if (h === "images") {
+              let arr = row[idx];
+              if (typeof arr === "string") {
+                try { arr = JSON.parse(arr); } catch { arr = []; }
+              }
+              if (!Array.isArray(arr)) arr = [];
+              values[h] = arr;
+            } else {
+              values[h] = row[idx];
+            }
+          });
+          setEditValues(values);
+          setShowModal(true);
+        }
+
+        function closeEditModal() {
+          setEditRow(null);
+          setEditValues({});
+          setShowModal(false);
+        }
+  
+        return (
+          <div>
+            <h2 className="text-xl font-bold mb-4">Colors Data (Table)</h2>
+            <input
+              type="text"
+              className="border px-2 py-1 rounded mb-4 w-full"
+              placeholder="ค้นหา color_code หรือชื่อสี..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <div className="overflow-x-auto">
+              <table className="min-w-full border">
+                <thead>
+                  <tr>
+                    {filteredColors[0] && filteredColors[0].map((header, idx) => (
+                      (header === "tag" || header === "untag") ? null : header === "hexcode" ? null : header === "images" ? (
+                        <th key={"hexcode_images"} className="border px-1 py-1 bg-gray-200 text-xs md:px-2 md:text-base">hexcode & Image</th>
+                      ) : header === "color_name" ? (
+                        <th key={idx} className="border px-1 py-1 bg-gray-200 text-xs md:px-2 md:text-base min-w-[80px] md:min-w-[120px]">{header}</th>
+                      ) : header === "supply" ? (
+                        <th key={idx} className="border px-1 py-1 bg-gray-200 text-xs md:px-2 md:text-base min-w-[120px] md:min-w-[180px]">{header}</th>
+                      ) : (
+                        <th key={idx} className="border px-1 py-1 bg-gray-200 text-xs md:px-2 md:text-base">{header}</th>
+                      )
+                    ))}
+                    <th className="border px-1 py-1 bg-gray-200 text-xs md:px-2 md:text-base">Edit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredColors.slice(1).map((row, i) => {
+                    const rowIndex = i + 1;
+                    return (
+                      <tr key={i}>
+                        {row.map((cell, j) => {
+                          const header = filteredColors[0][j];
+                          if (header === "tag" || header === "untag") return null;
+                          if (header === "hexcode") return null; // ข้ามช่อง hexcode เดิม
+                          if (header === "images") {
+                            // รวม images + hexcode
+                            let arr = [];
+                            let hex = "";
+                            try {
+                              arr = typeof row[j] === "string" ? JSON.parse(row[j]) : row[j];
+                            } catch { arr = []; }
+                            try {
+                              hex = row[filteredColors[0].indexOf("hexcode")];
+                              if (typeof hex === "string" && hex.startsWith('"') && hex.endsWith('"')) {
+                                hex = JSON.parse(hex);
+                              }
+                            } catch { hex = "#000000"; }
+                            const isValidHex = typeof hex === "string" && /^#[0-9A-Fa-f]{6}$/.test(hex);
+                            return (
+                              <td key={"hexcode_images"} className="border px-1 py-1">
+                                <div className="flex flex-col items-center justify-center min-h-[44px] h-full w-full">
+                                  {Array.isArray(arr) && arr.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1 justify-center items-center">
+                                      {arr.map((img, idx) => (
+                                        <img key={idx} src={img} alt="img" className="w-10 h-10 object-cover rounded border" title={img} />
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    isValidHex && (
+                                      <div className="w-10 h-10 rounded border" style={{ background: hex }} title={hex} />
+                                    )
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          }
+                          let value = cell;
+                          let hex = value;
+                          try {
+                            if ((header === "hexcode" || header === "color_code") && typeof hex === "string" && hex.startsWith('"') && hex.endsWith('"')) {
+                              hex = JSON.parse(hex);
+                            }
+                          } catch {}
+                          const isValidHex = header === "hexcode" && typeof hex === "string" && /^#[0-9A-Fa-f]{6}$/.test(hex);
+                          // แสดง color_name เป็นบรรทัดละภาษา
+                          if (header === "color_name") {
+                            let obj = null;
+                            try {
+                              obj = typeof value === "string" ? JSON.parse(value) : value;
+                            } catch { obj = null; }
+                            if (obj && typeof obj === "object") {
+                              return (
+                                <td key={j} className="border px-1 py-1 whitespace-pre-line text-xs md:px-2 md:text-base min-w-[80px] md:min-w-[120px]">
+                                  {Object.entries(obj).map(([lang, val]) => (
+                                    <div key={lang}><span className="font-semibold uppercase">{lang}</span> : {val}</div>
+                                  ))}
+                                </td>
+                              );
+                            }
+                          }
+                          // แสดง color_code เอา " ออกก่อน
+                          if (header === "color_code") {
+                            let code = value;
+                            if (typeof code === "string" && code.startsWith('"') && code.endsWith('"')) {
+                              try { code = JSON.parse(code); } catch {}
+                            }
+                            return (
+                              <td key={j} className="border px-1 py-1 whitespace-pre text-xs md:px-2 md:text-base">{code}</td>
+                            );
+                          }
+                          // แสดง supply เป็นบรรทัดละ key : value
+                          if (header === "supply") {
+                            let arr = value;
+                            try {
+                              arr = typeof value === "string" ? JSON.parse(value) : value;
+                            } catch { arr = value; }
+                            // หา color_name.th ของแถวนี้
+                            let colorNameTh = "";
+                            try {
+                              let colorNameCell = row[filteredColors[0].indexOf("color_name")];
+                              let colorNameObj = typeof colorNameCell === "string" ? JSON.parse(colorNameCell) : colorNameCell;
+                              colorNameTh = colorNameObj?.th || "";
+                            } catch {}
+                            // ฟังก์ชัน copy
+                            function handleCopy(code) {
+                              const text = `สี ${colorNameTh} รหัส ${code}`;
+                              navigator.clipboard.writeText(text);
+                              alert(`คัดลอก: ${text}`);
+                            }
+                            if (Array.isArray(arr)) {
+                              return (
+                                <td key={j} className="border px-1 py-1 whitespace-pre-line text-xs md:px-2 md:text-base min-w-[120px] md:min-w-[180px]">
+                                  {arr.map((item, idx) => (
+                                    <React.Fragment key={idx}>
+                                      {typeof item === "object" && item !== null ? (
+                                        <div
+                                          className="border rounded p-2 mb-1 cursor-pointer hover:bg-blue-50 hover:border-blue-400 transition"
+                                          onClick={() => handleCopy(item.code)}
+                                        >
+                                          {Object.entries(item).map(([k, v]) => (
+                                            <div key={k + idx}><span className="font-semibold">{k}</span>: {v}</div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div key={idx}>{String(item)}</div>
+                                      )}
+                                      {arr.length > 1 && idx < arr.length - 1 && (
+                                        <hr className="my-1 border-gray-300" />
+                                      )}
+                                    </React.Fragment>
+                                  ))}
+                                </td>
+                              );
+                            } else if (typeof arr === "object" && arr !== null) {
+                              return (
+                                <td key={j} className="border px-1 py-1 whitespace-pre-line text-xs md:px-2 md:text-base min-w-[120px] md:min-w-[180px]">
+                                  <div
+                                    className="border rounded p-2 cursor-pointer hover:bg-blue-50 hover:border-blue-400 transition"
+                                    onClick={() => handleCopy(arr.code)}
+                                  >
+                                    {Object.entries(arr).map(([k, v]) => (
+                                      <div key={k}><span className="font-semibold">{k}</span>: {v}</div>
+                                    ))}
+                                  </div>
+                                </td>
+                              );
+                            } else {
+                              return (
+                                <td key={j} className="border px-1 py-1 whitespace-pre text-xs md:px-2 md:text-base min-w-[120px] md:min-w-[180px]">{String(arr)}</td>
+                              );
+                            }
+                          }
+                          return (
+                            <td
+                              key={j}
+                              className="border px-1 py-1 whitespace-pre text-xs md:px-2 md:text-base"
+                              style={isValidHex ? { background: hex, color: '#fff', fontWeight: 'bold' } : {}}
+                            >
+                              {isValidHex ? hex : value}
+                            </td>
+                          );
+                        })}
+                        <td className="border px-1 py-1">
+                          <button
+                            className="bg-blue-500 text-white px-2 py-1 rounded w-full md:w-auto text-xs md:text-base"
+                            onClick={() => openEditModal(rowIndex, row, filteredColors[0])}
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Popup */}
+            {showModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg shadow-lg p-6 min-w-[320px] max-w-lg w-full relative">
+                  <h3 className="text-lg font-bold mb-4">Edit Row</h3>
+                  {filteredColors[0].map((header, idx) => (
+                    <React.Fragment key={header}>
+                      <div className="mb-2">
+                        <label className="block text-sm font-medium mb-1">{header}</label>
+                        {header === "color_name" && typeof editValues[header] === "object" && editValues[header] !== null ? (
+                          <>
+                            {Object.keys(editValues[header]).map(lang => (
+                              <div key={lang} className="flex items-center mb-1">
+                                <span className="w-10 text-xs text-gray-500">{lang}</span>
+                                <input
+                                  type="text"
+                                  className="border px-2 py-1 rounded w-full"
+                                  value={editValues[header][lang] ?? ""}
+                                  onChange={e =>
+                                    setEditValues(ev => ({
+                                      ...ev,
+                                      [header]: { ...ev[header], [lang]: e.target.value }
+                                    }))
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </>
+                        ) : header === "hexcode" ? (
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="text"
+                              className="border px-2 py-1 rounded w-32"
+                              value={editValues[header] ?? ""}
+                              onChange={e => {
+                                let val = e.target.value;
+                                // ถ้าไม่ขึ้นต้นด้วย # ให้เติม # ให้อัตโนมัติ
+                                if (val && !val.startsWith("#")) val = "#" + val;
+                                setEditValues(ev => ({ ...ev, [header]: val }));
+                              }}
+                              placeholder="#rrggbb"
+                              maxLength={7}
+                            />
+                            <input
+                              type="color"
+                              value={/^#[0-9A-Fa-f]{6}$/.test(editValues[header] ?? "") ? editValues[header] : "#000000"}
+                              onChange={e => {
+                                setEditValues(ev => ({ ...ev, [header]: e.target.value }));
+                              }}
+                            />
+                          </div>
+                        ) : header === "images" ? (
+                          <div>
+                            {/* กล่องรูปภาพแบบ flex wrap */}
+                            {Array.isArray(editValues[header]) && editValues[header].length > 0 && (
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {editValues[header].filter(url => url).map((url, idx) => (
+                                  <div key={idx} className="relative group flex flex-col items-center flex-shrink-0" style={{ minWidth: 'min-content', width: 'auto', maxWidth: 90 }}>
+                                    <img
+                                      src={url}
+                                      alt="img"
+                                      className="w-20 h-20 object-cover rounded border mb-1 cursor-pointer"
+                                      title={url}
+                                      onClick={() => {
+                                        const arr = Array.isArray(editValues[header]) ? [...editValues[header]] : [];
+                                        arr.splice(idx, 1);
+                                        setEditValues(ev => ({ ...ev, [header]: arr }));
+                                      }}
+                                    />
+                                    {/* Overlay on hover */}
+                                    <div className="absolute inset-0 flex items-center justify-center bg-red-500 bg-opacity-10 opacity-0 group-hover:opacity-100 transition rounded cursor-pointer pointer-events-none">
+                                      <span className="text-xs text-red-700 font-bold bg-white bg-opacity-80 px-2 py-1 rounded">คลิกเพื่อลบ</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* input สำหรับเพิ่ม url ใหม่ */}
+                            <div className="flex items-center gap-2 mt-2">
+                              <input
+                                type="text"
+                                className="border px-2 py-1 rounded w-full"
+                                placeholder="Image URL"
+                                value={editValues["new_image_url"] ?? ""}
+                                onChange={e => setEditValues(ev => ({ ...ev, new_image_url: e.target.value }))}
+                              />
+                              <button
+                                className="bg-green-500 text-white px-4 py-1 rounded"
+                                type="button"
+                                onClick={() => {
+                                  const url = (editValues["new_image_url"] ?? "").trim();
+                                  if (!url) return;
+                                  const arr = Array.isArray(editValues[header]) ? [...editValues[header]] : [];
+                                  arr.push(url);
+                                  setEditValues(ev => ({ ...ev, [header]: arr, new_image_url: "" }));
+                                }}
+                              >เพิ่ม URL</button>
+                            </div>
+                          </div>
+                        ) : header === "supply" ? (
+                          (() => {
+                            let arr = editValues[header];
+                            try {
+                              arr = typeof arr === "string" ? JSON.parse(arr) : arr;
+                            } catch { arr = editValues[header]; }
+                            // หา color_name.th ของแถวนี้
+                            let colorNameTh = "";
+                            try {
+                              let colorNameObj = editValues["color_name"];
+                              colorNameTh = colorNameObj?.th || "";
+                            } catch {}
+                            function handleRemove(idx) {
+                              const newArr = Array.isArray(arr) ? [...arr] : [];
+                              newArr.splice(idx, 1);
+                              setEditValues(ev => ({ ...ev, [header]: newArr }));
+                            }
+                            return (
+                              <div className="space-y-2">
+                                {/* กล่อง supply หลายอันให้เรียง flex row wrap */}
+                                {Array.isArray(arr) && (
+                                  <div className="flex flex-wrap gap-2">
+                                    {arr.map((item, idx) => (
+                                      <React.Fragment key={idx}>
+                                        {typeof item === "object" && item !== null ? (
+                                          <div
+                                            className="border rounded p-2 mb-1 cursor-pointer hover:border-red-400 hover:bg-red-50 transition relative group flex-shrink-0"
+                                            style={{ minWidth: 'min-content', width: 'auto', maxWidth: 220 }}
+                                            onClick={() => handleRemove(idx)}
+                                          >
+                                            {/* Overlay */}
+                                            <div className="absolute inset-0 bg-red-500 bg-opacity-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition pointer-events-none rounded">
+                                              <span className="text-xs text-red-700 font-bold bg-white bg-opacity-80 px-2 py-1 rounded">กดเพื่อลบ</span>
+                                            </div>
+                                            {Object.entries(item).map(([k, v]) => (
+                                              <div key={k + idx}><span className="font-semibold">{k}</span>: {v}</div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div key={idx}>{String(item)}</div>
+                                        )}
+                                        {/* ไม่ต้องมี hr ระหว่างกล่อง supply แล้ว */}
+                                      </React.Fragment>
+                                    ))}
+                                  </div>
+                                )}
+                                {/* ถ้าเป็น object เดี่ยว */}
+                                {(!Array.isArray(arr) && typeof arr === "object" && arr !== null) && (
+                                  <div
+                                    className="border rounded p-2 cursor-pointer hover:border-red-400 hover:bg-red-50 transition relative group flex-shrink-0"
+                                    style={{ minWidth: 'min-content', width: 'auto', maxWidth: 220 }}
+                                    onClick={() => setEditValues(ev => ({ ...ev, [header]: undefined }))}
+                                  >
+                                    <div className="absolute inset-0 bg-red-500 bg-opacity-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition pointer-events-none rounded">
+                                      <span className="text-xs text-red-700 font-bold bg-white bg-opacity-80 px-2 py-1 rounded">กดเพื่อลบ</span>
+                                    </div>
+                                    {Object.entries(arr).map(([k, v]) => (
+                                      <div key={k}><span className="font-semibold">{k}</span>: {v}</div>
+                                    ))}
+                                  </div>
+                                )}
+                                {/* input ชื่อผู้ผลิต */}
+                                <input
+                                  type="text"
+                                  className="border px-2 py-1 rounded w-full mt-2"
+                                  placeholder="ชื่อผู้ผลิต"
+                                  value={editValues["supply_manufacturer"] ?? ""}
+                                  onChange={e => setEditValues(ev => ({ ...ev, supply_manufacturer: e.target.value }))}
+                                />
+                                {/* input รหัสของผู้ผลิต */}
+                                <input
+                                  type="text"
+                                  className="border px-2 py-1 rounded w-full mt-2"
+                                  placeholder="รหัสของผู้ผลิต"
+                                  value={editValues["supply_manufacturer_code"] ?? ""}
+                                  onChange={e => setEditValues(ev => ({ ...ev, supply_manufacturer_code: e.target.value }))}
+                                />
+                                {/* ปุ่มเพิ่ม Supply */}
+                                <button
+                                  type="button"
+                                  className="bg-green-500 text-white px-4 py-1 rounded mt-2 w-full"
+                                  onClick={() => {
+                                    const supply = editValues["supply_manufacturer"]?.trim() || "";
+                                    const code = editValues["supply_manufacturer_code"]?.trim() || "";
+                                    if (!supply && !code) return;
+                                    const newItem = { supply, code };
+                                    let arr = editValues[header];
+                                    try { arr = typeof arr === "string" ? JSON.parse(arr) : arr; } catch { arr = []; }
+                                    if (!Array.isArray(arr)) arr = [];
+                                    setEditValues(ev => ({
+                                      ...ev,
+                                      [header]: [...arr, newItem],
+                                      supply_manufacturer: "",
+                                      supply_manufacturer_code: ""
+                                    }));
+                                  }}
+                                >เพิ่ม Supply</button>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <input
+                            type="text"
+                            className="border px-2 py-1 rounded w-full"
+                            value={editValues[header] ?? ""}
+                            onChange={e => setEditValues(ev => ({ ...ev, [header]: e.target.value }))}
+                          />
+                        )}
+                      </div>
+                      {idx < filteredColors[0].length - 1 && <hr className="my-3 border-gray-300" />}
+                    </React.Fragment>
+                  ))}
+                  <div className="flex justify-end space-x-2 mt-4">
+                    <button
+                      className="bg-green-500 text-white px-4 py-1 rounded"
+                      onClick={() => {
+                        // อัปเดตข้อมูลใน state (เฉพาะหน้าเว็บ)
+                        const newColors = [...filteredColors];
+                        const rowData = filteredColors[0].map(h =>
+                          h === "color_name"
+                            ? JSON.stringify(editValues[h])
+                            : editValues[h]
+                        );
+                        newColors[editRow] = rowData;
+                        setColors(newColors);
+                        closeEditModal();
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="bg-gray-400 text-white px-4 py-1 rounded"
+                      onClick={closeEditModal}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      });
+  
+  
+  </script>
+
+
+    <!-- App Section -->
+    <script type="text/babel">
+
+      function App() {
+        return (
+          <div className="flex flex-col items-center justify-center space-y-6 p-4"> 
+            <Colordata/>
+          </div>
+        );
+      }
+
+      // หาส่วนของ DOM ที่จะใช้เป็น Root สำหรับ React Application
+      const rootElement = document.getElementById('root');
+
+      // สร้าง React Root และเรนเดอร์ App Component
+      // React.StrictMode ช่วยในการตรวจจับปัญหาที่อาจเกิดขึ้นในแอปพลิเคชันของคุณ
+      if (rootElement) {
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(
+          <React.StrictMode>
+            <App />
+          </React.StrictMode>
+        );
+      } else {
+        console.error("Root element with ID 'root' not found.");
+      }
+    </script>
+  </body>
+</html>
